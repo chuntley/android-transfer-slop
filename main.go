@@ -49,7 +49,7 @@ func parseConfig(args []string, out io.Writer) (config, error) {
 	f.IntVar(&c.batchSize, "batch-size", 250, "maximum files per batch")
 	f.Int64Var(&c.batchBytes, "batch-bytes", 2<<30, "maximum source bytes per batch; one oversized file gets its own batch")
 	f.IntVar(&c.maxBatches, "max-batches", 0, "stop successfully after this many batches; 0 processes all files")
-	f.DurationVar(&c.timeout, "timeout", 10*time.Minute, "timeout for each ADB command")
+	f.DurationVar(&c.timeout, "timeout", 30*time.Minute, "timeout for each ADB command")
 	f.BoolVar(&c.verify, "verify", false, "compare every selected phone file with its local copy; copy nothing")
 	f.BoolVar(&c.gui, "gui", false, "open the local browser interface")
 	f.BoolVar(&c.noOpen, "no-open", false, "with -gui, print the URL without opening a browser")

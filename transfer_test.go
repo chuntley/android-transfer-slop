@@ -116,6 +116,15 @@ func TestTransferScanProgressStaysCurrentBeforeInventoryReturns(t *testing.T) {
 	}
 }
 
+func TestTransferScanTimeoutExplainsRecovery(t *testing.T) {
+	c, d := testConfig(t), testDevice()
+	d.scanErr = context.DeadlineExceeded
+	err := runWithDevice(context.Background(), c, io.Discard, d)
+	if !errors.Is(err, d.scanErr) || !strings.Contains(err.Error(), "inventory scan timed out after 1s") {
+		t.Fatalf("scan timeout guidance missing: %v", err)
+	}
+}
+
 func TestTransferClearsScanPathBeforeCopying(t *testing.T) {
 	c, d := testConfig(t), testDevice()
 	var transition *transferProgress
