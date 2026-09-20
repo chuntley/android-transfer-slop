@@ -4,26 +4,22 @@ Copy files from an Android phone to your computer over ADB, with SHA-256 verific
 
 **Transfer and Verify only never change phone originals. Source deletion is a separate, explicitly confirmed action.** The phone is authoritative: matching destination files are skipped; mismatches are replaced only after a fresh copy is verified.
 
-## Download the latest release
+## Install the latest release
 
-To download the latest public release without installing Go, run this from a macOS or Linux terminal:
+Run this single command from the directory where you want the executable:
 
 ```sh
-case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)  asset=android-transfer-slop-darwin-arm64 ;;
-  Darwin-x86_64) asset=android-transfer-slop-darwin-amd64 ;;
-  Linux-aarch64) asset=android-transfer-slop-linux-arm64 ;;
-  Linux-x86_64) asset=android-transfer-slop-linux-amd64 ;;
-  *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
-esac
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output android-transfer-slop \
-  "https://github.com/chuntley/android-transfer-slop/releases/latest/download/$asset"
-chmod +x android-transfer-slop
-./android-transfer-slop -gui
+curl --fail --location --proto '=https' --tlsv1.2 --silent --show-error \
+  https://raw.githubusercontent.com/chuntley/android-transfer-slop/main/install.sh | sh
 ```
 
-Release binaries are built from tagged source and do not bundle `adb`; install Android SDK Platform-Tools separately.
+The installer detects macOS or Linux on Intel or ARM, downloads the matching latest release, verifies its SHA-256 checksum, and writes `./android-transfer-slop`. It does not install `adb`; install Android SDK Platform-Tools separately.
+
+Start the app with:
+
+```sh
+./android-transfer-slop -gui
+```
 
 ## Requirements
 
