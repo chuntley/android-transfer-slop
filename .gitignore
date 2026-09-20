@@ -1,0 +1,17 @@
+# Local executables and Go diagnostics
+/android-transfer
+/android-transfer-slop
+*.test
+coverage.out
+coverage.html
+*.prof
+
+# Generated design reviews and local tooling state
+/.impeccable/
+/dist/
+
+# Workstation files and local secrets
+.DS_Store
+.env
+.env.*
+!.env.example

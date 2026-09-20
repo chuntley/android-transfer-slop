@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="transfer-token" content="{{.Token}}">
+  <title>Android Transfer SLOP</title>
+  <link rel="stylesheet" href="/gui.css">
+  <script src="/gui.js" defer></script>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M9 14h22m-6-6 6 6-6 6M31 26H9m6-6-6 6 6 6"/></svg>
+        <div><h1>Android Transfer SLOP</h1><p>Phone to computer. Verified along the way.</p></div>
+      </div>
+      <span class="local-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg>Runs locally on your computer</span>
+    </header>
+    <noscript><p class="notice error">JavaScript is required for this local interface. Enable it and reload, or use the command-line interface.</p></noscript>
+    <p id="connection-error" class="notice error" role="alert" hidden></p>
+    <div class="workspace">
+      <form id="transfer-form" class="surface" novalidate>
+        <div class="workspace-heading"><h2>Set up your transfer</h2><p>Choose what to copy and where it should go.</p></div>
+        <fieldset id="settings" disabled>
+          <legend class="visually-hidden">Transfer settings</legend>
+          <section class="device-section" aria-labelledby="phone-heading">
+            <div class="section-title"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-3 14h2"/></svg><h3 id="phone-heading">Your phone</h3></div>
+            <label for="device">Connected device</label>
+            <div class="control-row">
+              <select id="device" aria-describedby="device-help device-error"><option value="">Looking for devices…</option></select>
+              <button id="refresh-devices" type="button">Refresh</button>
+            </div>
+            <p id="device-help" class="help" role="status">Connect your phone with a USB data cable.</p>
+            <p id="device-error" class="error" role="alert" hidden></p>
+            <details class="setup">
+              <summary>Need help connecting?</summary>
+              <p>Install Android SDK Platform-Tools so <code>adb</code> is available on your computer. On your phone, enable Developer options and USB debugging, connect a USB data cable, then unlock the phone and allow this computer’s debugging request. Select Refresh after connecting.</p>
+            </details>
+          </section>
+          <div class="settings-columns">
+            <section aria-labelledby="sources-heading">
+              <div class="section-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm0 1h18"/></svg><h3 id="sources-heading">Source folder</h3></div>
+              <p class="help section-help">From your phone, including subfolders.</p>
+              <label for="phone-path">Phone folder path</label>
+              <input id="phone-path" type="text" placeholder="/sdcard/DCIM" spellcheck="false" autocomplete="off" aria-describedby="source-help sources-error">
+              <button id="choose-source" class="picker-button" type="button" aria-controls="source-browser" aria-expanded="false">Choose folder…</button>
+              <p id="source-help" class="help">Choose a folder or enter its path directly.</p>
+              <div id="source-browser" class="source-browser" hidden>
+                <div class="browser-toolbar">
+                  <button id="up-folder" class="up-folder" type="button" aria-label="Open parent folder" title="Open parent folder">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6-6 6 6M12 4v16"/></svg>
+                  </button>
+                  <nav class="folder-breadcrumbs" aria-label="Phone folder location"><ol id="folder-breadcrumbs"></ol></nav>
+                </div>
+                <div class="folder-list-heading" aria-hidden="true"><span>Name</span><span>Folders only</span></div>
+                <ul id="folder-list" class="folder-list" aria-label="Phone subfolders"></ul>
+                <p id="browse-status" class="browse-status" role="status">Choose a folder to browse its subfolders.</p>
+                <p id="browse-error" class="error" role="alert" hidden></p>
+                <div id="folder-pagination" class="pagination" hidden>
+                  <button id="previous-folders" type="button">Previous</button>
+                  <span id="folder-page" class="help" aria-live="polite"></span>
+                  <button id="next-folders" type="button">Next</button>
+                </div>
+              </div>
+              <template id="folder-row">
+                <li><button type="button">
+                  <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/><path d="M3 8h18"/></svg>
+                  <span class="folder-name"></span>
+                  <svg class="folder-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+                </button></li>
+              </template>
+              <p id="sources-error" class="error" role="alert" hidden></p>
+            </section>
+            <div class="transfer-direction" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></div>
+            <section aria-labelledby="destination-heading">
+              <div class="section-title"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg><h3 id="destination-heading">Destination</h3></div>
+              <p class="help section-help">To this computer or an attached drive.</p>
+              <label for="destination">Destination folder path</label>
+              <input id="destination" type="text" placeholder="/Volumes/Backup/Phone" spellcheck="false" autocomplete="off" aria-describedby="destination-help destination-error">
+              <button id="choose-destination" class="picker-button" type="button">Choose folder…</button>
+              <p id="destination-help" class="help">Only the source folder’s contents go here. Subfolders stay organized.</p>
+              <p id="destination-error" class="error" role="alert" hidden></p>
+            </section>
+          </div>
+          <details id="advanced" class="advanced">
+            <summary>Advanced settings <span>Batch limits</span></summary>
+            <div class="advanced-fields">
+              <div><label for="batch-size">Files per batch</label><input id="batch-size" type="number" min="1" step="1" value="250" required aria-describedby="batch-size-help"><p id="batch-size-help" class="help">New copies and replacements count. Matching files do not.</p></div>
+              <div><label for="batch-bytes">Maximum bytes per batch</label><input id="batch-bytes" type="number" min="1" step="1" value="2147483648" required aria-describedby="bytes-help"><p id="bytes-help" class="help">Default: 2 GiB. A larger file transfers on its own.</p></div>
+              <div><label for="max-batches">Maximum batches</label><input id="max-batches" type="number" min="0" step="1" value="0" required aria-describedby="batches-help"><p id="batches-help" class="help">0 means no limit. Start again to continue a limited run.</p></div>
+            </div>
+          </details>
+          <div class="transfer-actions">
+            <p id="form-error" class="error" role="alert" hidden></p>
+            <div class="action-row"><button id="start" class="primary" type="submit">Start / resume transfer</button><button id="safe-delete" class="danger" type="button" aria-describedby="delete-help">Safe Source Delete</button><button id="verify" type="button">Verify only</button></div>
+            <p class="help transfer-policy">The phone is the source of truth. Matching copies are skipped; mismatches are replaced only after a fresh copy is verified. Verify only checks without changing copies.</p>
+            <p id="delete-help" class="help">Safe Source Delete permanently removes phone files only after a fresh SHA-256 match with the destination. Missing or mismatched copies stay on the phone. Keep both folders idle and a second backup. Batch limits do not apply.</p>
+          </div>
+        </fieldset>
+      </form>
+      <section id="run-panel" class="run-panel" aria-labelledby="run-heading">
+        <div class="run-header"><h2 id="run-heading">Transfer status</h2><button id="stop" type="button" hidden>Stop safely</button></div>
+        <div class="status-symbol" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M8 14h24m-6-6 6 6-6 6M32 26H8m6-6-6 6 6 6"/></svg></div>
+        <p id="run-status" class="run-status" role="status" aria-live="polite">Connecting to the local transfer server…</p>
+        <progress id="progress" max="1" value="0" aria-label="Files verified"></progress>
+        <p id="progress-counts" class="counts">0 copied · 0 verified</p>
+        <p id="verification-counts" class="counts" hidden></p>
+        <p id="verification-help" class="help" hidden>Transfer mode repairs missing or mismatched copies using the phone’s version. Changed sources need a fresh check. Download the report for details; a download during a run is a partial report.</p>
+        <button id="download-report" class="report-button" type="button" hidden>Download verification report</button>
+        <p id="report-error" class="error" role="alert" hidden></p>
+        <p id="current-file" class="current-file" hidden></p>
+        <p id="run-error" class="error" role="alert" hidden></p>
+        <p id="stop-error" class="error" role="alert" hidden></p>
+        <details class="activity"><summary>Recent activity</summary><pre id="activity-log" tabindex="0" aria-label="Recent transfer activity">No activity yet.</pre></details>
+        <p class="session-note">You can close this tab. Keep the local server running to continue the transfer.</p>
+      </section>
+    </div>
+    <footer class="workspace-footer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></svg><p>Transfer and verification leave phone originals untouched. Source deletion requires confirmation and a fresh SHA-256 match.</p></footer>
+  </main>
+</body>
+</html>
