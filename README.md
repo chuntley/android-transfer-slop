@@ -4,6 +4,27 @@ Copy files from an Android phone to your computer over ADB, with SHA-256 verific
 
 **Transfer and Verify only never change phone originals. Source deletion is a separate, explicitly confirmed action.** The phone is authoritative: matching destination files are skipped; mismatches are replaced only after a fresh copy is verified.
 
+## Download the latest release
+
+To download the latest public release without installing Go, run this from a macOS or Linux terminal:
+
+```sh
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64)  asset=android-transfer-slop-darwin-arm64 ;;
+  Darwin-x86_64) asset=android-transfer-slop-darwin-amd64 ;;
+  Linux-aarch64) asset=android-transfer-slop-linux-arm64 ;;
+  Linux-x86_64) asset=android-transfer-slop-linux-amd64 ;;
+  *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+esac
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output android-transfer-slop \
+  "https://github.com/chuntley/android-transfer-slop/releases/latest/download/$asset"
+chmod +x android-transfer-slop
+./android-transfer-slop -gui
+```
+
+Release binaries are built from tagged source and do not bundle `adb`; install Android SDK Platform-Tools separately.
+
 ## Requirements
 
 - **Go 1.25+** and **Android SDK Platform-Tools** (`adb`). No Android Studio or root access required.
@@ -58,27 +79,6 @@ Open the URL printed in the terminal. To build a standalone executable instead:
 go build -o android-transfer-slop .
 ./android-transfer-slop -gui
 ```
-
-### Download a published binary
-
-To download the latest public release without installing Go, run this from a macOS or Linux terminal:
-
-```sh
-case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)  asset=android-transfer-slop-darwin-arm64 ;;
-  Darwin-x86_64) asset=android-transfer-slop-darwin-amd64 ;;
-  Linux-aarch64) asset=android-transfer-slop-linux-arm64 ;;
-  Linux-x86_64) asset=android-transfer-slop-linux-amd64 ;;
-  *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
-esac
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output android-transfer-slop \
-  "https://github.com/chuntley/android-transfer-slop/releases/latest/download/$asset"
-chmod +x android-transfer-slop
-./android-transfer-slop -gui
-```
-
-Release binaries are built from tagged source and do not bundle `adb`; install Android SDK Platform-Tools separately.
 
 ## Transfer your files
 
