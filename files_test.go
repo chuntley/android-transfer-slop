@@ -209,8 +209,8 @@ func TestCLIParsesSourcesAndBatchControls(t *testing.T) {
 	if c.dest != "out" || len(c.sources) != 2 || c.sources[0] != "/sdcard/DCIM" || c.batchSize != 12 || c.batchBytes != 4096 || c.maxBatches != 3 {
 		t.Fatalf("incorrect user configuration: %+v", c)
 	}
-	if c.timeout != 30*time.Minute {
-		t.Fatalf("default timeout = %s, want 30m", c.timeout)
+	if c.timeout != 4*time.Hour {
+		t.Fatalf("default timeout = %s, want 4h", c.timeout)
 	}
 }
 

@@ -152,7 +152,7 @@ All regular source files in the selected folder and its subfolders are considere
 | Phone missing or `offline` | Unlock it, reconnect with a data-capable cable, try another USB port, then Refresh. |
 | Phone `unauthorized` | Accept the USB debugging prompt on the phone, then Refresh. |
 | `adb` not found | Install Platform-Tools or launch with `go run . -gui -adb /absolute/path/to/adb`. |
-| Scan or large-file timeout | Relaunch with `android-transfer-slop -gui -timeout 60m` (or `go run . -gui -timeout 60m`). The default 30-minute limit applies to each ADB command, including the whole scan. |
+| Scan or large-file timeout | Relaunch with `android-transfer-slop -gui -timeout 6h` (or `go run . -gui -timeout 6h`). The default 4-hour limit applies to each ADB command, including the whole scan. |
 | Destination is locked | Stop the other run or app instance. Do not delete the lock file to bypass an active lock. |
 | Missing or mismatched destination | Confirm the folder layout. Use transfer mode to copy or repair; do not delete phone originals to force progress. |
 | Deletion unconfirmed | Inspect the phone and report before retrying; the command’s acknowledgement may have been lost. |
