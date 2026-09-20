@@ -91,7 +91,7 @@ The destination is locked against another instance; do not modify it during a ru
 
 Batch limits count new copies and replacements. -max-batches allows incremental runs.
 Any transfer error stops the run; already verified copies remain available.
-Local destination must support hard links and advisory locking (macOS/Linux).
+Destination storage must support advisory locking and durable file operations (macOS/Linux).
 
 Example:
   android-transfer-slop -dest /Volumes/Photos/Samsung -source /sdcard/DCIM -source /sdcard/Pictures

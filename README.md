@@ -24,7 +24,7 @@ android-transfer-slop -gui
 
 - **Go 1.25+** and **Android SDK Platform-Tools** (`adb`). No Android Studio or root access required.
 - An Android phone with USB debugging enabled, an authorized computer, and a data-capable USB cable.
-- macOS or Linux, with destination storage that supports hard links and advisory locking. Use APFS on macOS; exFAT/FAT destinations are unsupported.
+- macOS or Linux, with destination storage that supports advisory locking and durable file operations. APFS is recommended; filesystems without hard links use a slower exclusive-copy fallback for new files.
 - Enough free space for the files and one full temporary copy when replacing a mismatch.
 
 The native destination picker is macOS-only. On Linux, enter an absolute destination path. Files are processed sequentially, not concurrently.

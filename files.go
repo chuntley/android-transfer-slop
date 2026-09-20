@@ -258,13 +258,43 @@ func (d *destination) hash(ctx context.Context, rel string, flush bool) (fingerp
 
 func (d *destination) publish(temp, rel string) error {
 	// A new copy must not overwrite an entry created after the initial check.
-	if err := d.root.Link(temp, rel); err != nil {
+	if err := d.root.Link(temp, rel); err == nil {
+		if names, ok := d.names[filepath.Dir(rel)]; ok {
+			names[filepath.Base(rel)] = true
+		}
+		return d.syncDir(filepath.Dir(rel))
+	} else if !errors.Is(err, syscall.ENOTSUP) && !errors.Is(err, syscall.EOPNOTSUPP) {
 		return fmt.Errorf("publishing without overwrite: %w", err)
+	}
+	// Some filesystems do not implement hard links. O_EXCL preserves the
+	// no-overwrite guarantee there, at the cost of copying the verified bytes
+	// into the final name before publication completes.
+	return d.publishExclusiveCopy(temp, rel)
+}
+
+func (d *destination) publishExclusiveCopy(temp, rel string) error {
+	source, err := d.root.Open(temp)
+	if err != nil {
+		return err
+	}
+	target, err := d.root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		source.Close()
+		return fmt.Errorf("publishing without overwrite: %w", err)
+	}
+	_, copyErr := io.Copy(target, source)
+	syncErr := target.Sync()
+	closeErr := errors.Join(target.Close(), source.Close())
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		return fmt.Errorf("publishing without overwrite: %w", err)
+	}
+	if err := d.syncDir(filepath.Dir(rel)); err != nil {
+		return err
 	}
 	if names, ok := d.names[filepath.Dir(rel)]; ok {
 		names[filepath.Base(rel)] = true
 	}
-	return d.syncDir(filepath.Dir(rel))
+	return nil
 }
 
 func (d *destination) replace(temp, rel string, expected os.FileInfo) error {

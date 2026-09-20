@@ -175,6 +175,31 @@ func TestPublicationNeverReplacesExistingFile(t *testing.T) {
 	assertContent(t, filepath.Join(d.root.Name(), "target"), []byte("old"))
 }
 
+func TestExclusivePublicationCopiesWithoutOverwrite(t *testing.T) {
+	d, err := openDestination(t.TempDir(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := d.root.WriteFile("temp", []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.publishExclusiveCopy("temp", "published"); err != nil {
+		t.Fatal(err)
+	}
+	assertContent(t, filepath.Join(d.root.Name(), "published"), []byte("new"))
+	if err := d.root.WriteFile("temp-2", []byte("newer"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.root.WriteFile("published-2", []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.publishExclusiveCopy("temp-2", "published-2"); err == nil {
+		t.Fatal("exclusive publication replaced an existing file")
+	}
+	assertContent(t, filepath.Join(d.root.Name(), "published-2"), []byte("old"))
+}
+
 func TestLocalPathRejectsTraversalAndMetadataCollisions(t *testing.T) {
 	for _, value := range []string{"", "/", "relative", "/sdcard/../escape", "/sdcard//double", "/sdcard/nul\x00", "/sdcard", "/sdcard-other/file", "/sdcard/.android-transfer.lock", "/sdcard/.android-transfer-part-x/file"} {
 		t.Run(value, func(t *testing.T) {

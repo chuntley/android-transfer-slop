@@ -27,7 +27,7 @@ A local Go server serves a browser interface at 127.0.0.1. The phone connects ov
 - Rehash existing files on restart; no cached success database or partial-file continuation.
 - Verify-only reports problems without repairing copies. Extra destination files and phone originals are left alone.
 - Safe Source Delete is a separate GUI action with destructive confirmation, fresh source/destination hashing, durable local copies, path/identity guards, stop controls, and a downloadable deletion report. It ignores transfer batch limits and never repairs destination files. Both folders must stay idle: ADB cannot make verification and removal atomic.
-- Destination storage requires hard links and advisory locks.
+- Destination storage requires advisory locks and durable file operations. Filesystems without hard links use an exclusive-copy fallback for new files.
 - Preserve the existing Go, HTML, CSS, and vanilla JavaScript implementation and local-only security model.
 
 ## Brand Commitments
