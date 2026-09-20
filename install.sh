@@ -17,7 +17,7 @@ case "$os_name-$arch" in
     ;;
 esac
 
-target=${INSTALL_PATH:-"$PWD/android-transfer-slop"}
+target=${INSTALL_PATH:-"$HOME/.local/bin/android-transfer-slop"}
 target_dir=$(dirname "$target")
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/android-transfer-slop.XXXXXX")
 tmp_binary="$tmp_dir/$asset"
@@ -57,4 +57,7 @@ cp "$tmp_binary" "$tmp_target"
 chmod 0755 "$tmp_target"
 mv -f "$tmp_target" "$target"
 printf 'Installed %s\n' "$target"
-printf 'Run: %s -gui\n' "$target"
+case ":${PATH:-}:" in
+  *":$target_dir:"*) printf 'Run: android-transfer-slop -gui\n' ;;
+  *) printf 'Add to PATH: export PATH="%s:$PATH"\n' "$target_dir" ;;
+esac

@@ -6,18 +6,18 @@ Copy files from an Android phone to your computer over ADB, with SHA-256 verific
 
 ## Install the latest release
 
-Run this single command from the directory where you want the executable:
+Run this once; it installs the latest release into your user-local executable directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/chuntley/android-transfer-slop/main/install.sh | sh
 ```
 
-The installer detects macOS or Linux on Intel or ARM, downloads the matching latest release, verifies its SHA-256 checksum, and writes `./android-transfer-slop`. It does not install `adb`; install Android SDK Platform-Tools separately.
+The installer detects macOS or Linux on Intel or ARM, downloads the matching latest release, verifies its SHA-256 checksum, and writes `~/.local/bin/android-transfer-slop`. It does not install `adb`; install Android SDK Platform-Tools separately. If `~/.local/bin` is not already on `PATH`, the installer prints the exact export command; it does not modify shell startup files.
 
 Start the app with:
 
 ```sh
-./android-transfer-slop -gui
+~/.local/bin/android-transfer-slop -gui
 ```
 
 ## Requirements
