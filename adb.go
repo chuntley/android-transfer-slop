@@ -18,7 +18,10 @@ import (
 	"unicode"
 )
 
-const adbErrorLimit = 4096
+const (
+	adbErrorLimit     = 4096
+	defaultADBTimeout = 4 * time.Hour
+)
 
 type adbDevice struct {
 	binary          string
@@ -30,7 +33,7 @@ type adbDevice struct {
 
 func newADB(binary, serial string, timeout time.Duration) *adbDevice {
 	if timeout <= 0 {
-		timeout = 2 * time.Minute
+		timeout = defaultADBTimeout
 	}
 	return &adbDevice{binary: binary, requestedSerial: serial, timeout: timeout}
 }
@@ -57,19 +60,85 @@ func (b *adbLimitedBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+type adbIdleTimeout struct {
+	mu      sync.Mutex
+	timer   *time.Timer
+	timeout time.Duration
+	cancel  context.CancelFunc
+	expired bool
+}
+
+func newADBIdleTimeout(timeout time.Duration, cancel context.CancelFunc) *adbIdleTimeout {
+	idle := &adbIdleTimeout{timeout: timeout, cancel: cancel}
+	idle.timer = time.AfterFunc(timeout, idle.expire)
+	return idle
+}
+
+func (i *adbIdleTimeout) activity() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.expired {
+		i.timer.Reset(i.timeout)
+	}
+}
+
+func (i *adbIdleTimeout) expire() {
+	i.mu.Lock()
+	if i.expired {
+		i.mu.Unlock()
+		return
+	}
+	i.expired = true
+	i.mu.Unlock()
+	i.cancel()
+}
+
+func (i *adbIdleTimeout) timedOut() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.expired
+}
+
+func (i *adbIdleTimeout) stop() {
+	i.mu.Lock()
+	i.timer.Stop()
+	i.mu.Unlock()
+}
+
+type adbActivityWriter struct {
+	target   io.Writer
+	activity func()
+}
+
+func (w adbActivityWriter) Write(p []byte) (int, error) {
+	n, err := w.target.Write(p)
+	if n > 0 {
+		w.activity()
+	}
+	return n, err
+}
+
 func (d *adbDevice) run(ctx context.Context, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, d.timeout)
+	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, d.binary, args...)
+	idle := newADBIdleTimeout(d.timeout, cancel)
+	defer idle.stop()
+	cmd := exec.CommandContext(commandCtx, d.binary, args...)
 	// Bound waiting for a descendant that inherited adb's output pipes.
 	cmd.WaitDelay = time.Second
 	var stdout bytes.Buffer
 	var stderr adbLimitedBuffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
+	cmd.Stdout = adbActivityWriter{target: &stdout, activity: idle.activity}
+	cmd.Stderr = adbActivityWriter{target: &stderr, activity: idle.activity}
+	err := cmd.Run()
+	if err != nil {
+		switch {
+		case ctx.Err() != nil:
 			err = ctx.Err()
+		case idle.timedOut():
+			err = context.DeadlineExceeded
+		case commandCtx.Err() != nil:
+			err = commandCtx.Err()
 		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
@@ -202,13 +271,16 @@ func (d *adbDevice) Inventory(ctx context.Context, roots []string, report func(i
 	if serial == "" {
 		return nil, errors.New("device serial must be resolved before accessing files")
 	}
-	ctx, cancel := context.WithTimeout(ctx, d.timeout)
+	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, d.binary, "-s", serial, "shell", "-T", command.String())
+	idle := newADBIdleTimeout(d.timeout, cancel)
+	defer idle.stop()
+	cmd := exec.CommandContext(commandCtx, d.binary, "-s", serial, "shell", "-T", command.String())
 	cmd.WaitDelay = time.Second
 	reader, writer := io.Pipe()
 	var stderr adbLimitedBuffer
-	cmd.Stdout, cmd.Stderr = writer, &stderr
+	cmd.Stdout = adbActivityWriter{target: writer, activity: idle.activity}
+	cmd.Stderr = adbActivityWriter{target: &stderr, activity: idle.activity}
 	done := make(chan error, 1)
 	go func() {
 		err := cmd.Run()
@@ -226,6 +298,8 @@ func (d *adbDevice) Inventory(ctx context.Context, roots []string, report func(i
 	commandErr := <-done
 	if contextErr != nil {
 		commandErr = contextErr
+	} else if idle.timedOut() {
+		commandErr = context.DeadlineExceeded
 	} else if parseErr != nil {
 		commandErr = parseErr
 	}

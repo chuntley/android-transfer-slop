@@ -574,6 +574,14 @@ func TestADBContextAndCommandTimeout(t *testing.T) {
 	}
 }
 
+func TestADBCommandTimeoutResetsOnActivity(t *testing.T) {
+	d := newADB("/bin/sh", "", 300*time.Millisecond)
+	out, err := d.run(context.Background(), "-c", "printf first; sleep 0.2; printf second; sleep 0.2; printf third")
+	if err != nil || string(out) != "firstsecondthird" {
+		t.Fatalf("active command timed out: output=%q, error=%v", out, err)
+	}
+}
+
 func TestADBRejectsUnsafePathFormsBeforeExecution(t *testing.T) {
 	d := newADB("must-not-execute", "", time.Second)
 	for _, p := range []string{"relative", "/photos/../outside", "/photos//a", "/photos/a\x00bad"} {

@@ -71,7 +71,7 @@ func runWithDevice(ctx context.Context, c config, out io.Writer, dev device) (re
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-			return fmt.Errorf("inventory scan timed out after %s; increase -timeout and keep the phone awake: %w", c.timeout, err)
+			return fmt.Errorf("inventory scan stopped after %s without device activity; increase -timeout and keep the phone awake: %w", c.timeout, err)
 		}
 		return err
 	}
