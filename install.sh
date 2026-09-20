@@ -17,14 +17,56 @@ case "$os_name-$arch" in
     ;;
 esac
 
-target=${INSTALL_PATH:-"$HOME/.local/bin/android-transfer-slop"}
-target_dir=$(dirname "$target")
+privileged=0
+if [ -n "${INSTALL_PATH:-}" ]; then
+  target=$INSTALL_PATH
+  target_dir=$(dirname "$target")
+  if [ -e "$target_dir" ] && { [ ! -d "$target_dir" ] || [ ! -w "$target_dir" ]; }; then
+    privileged=1
+  fi
+else
+  install_dir=""
+  saved_ifs=$IFS
+  IFS=:
+  for candidate in ${PATH:-}; do
+    IFS=$saved_ifs
+    case "$candidate" in
+      ""|.) continue ;;
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ -d "$candidate" ] && [ -w "$candidate" ] && [ -x "$candidate" ]; then
+      install_dir=$candidate
+      break
+    fi
+    if [ ! -e "$candidate" ] && [ -w "$(dirname "$candidate")" ]; then
+      install_dir=$candidate
+      break
+    fi
+    IFS=:
+  done
+  IFS=$saved_ifs
+  if [ -z "$install_dir" ]; then
+    case ":${PATH:-}:" in
+      *:/usr/local/bin:*)
+        install_dir=/usr/local/bin
+        privileged=1
+        ;;
+      *)
+        echo "No writable directory on PATH. Add one or set INSTALL_PATH explicitly." >&2
+        exit 1
+        ;;
+    esac
+  fi
+  target="$install_dir/android-transfer-slop"
+  target_dir=$install_dir
+fi
+
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/android-transfer-slop.XXXXXX")
 tmp_binary="$tmp_dir/$asset"
-tmp_target="$target.tmp.$$"
+tmp_target="$tmp_dir/android-transfer-slop"
 cleanup() {
   rm -rf "$tmp_dir"
-  rm -f "$tmp_target"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -52,12 +94,22 @@ if [ "$actual" != "$expected" ]; then
   exit 1
 fi
 
-mkdir -p "$target_dir"
-cp "$tmp_binary" "$tmp_target"
-chmod 0755 "$tmp_target"
-mv -f "$tmp_target" "$target"
+if [ "$privileged" -eq 1 ]; then
+  command -v sudo >/dev/null 2>&1 || {
+    echo "The selected PATH directory is not writable and sudo is unavailable." >&2
+    exit 1
+  }
+  sudo mkdir -p "$target_dir"
+  sudo install -m 0755 "$tmp_binary" "$target"
+else
+  mkdir -p "$target_dir"
+  cp "$tmp_binary" "$tmp_target"
+  chmod 0755 "$tmp_target"
+  mv -f "$tmp_target" "$target"
+fi
+
 printf 'Installed %s\n' "$target"
 case ":${PATH:-}:" in
-  *":$target_dir:"*) printf 'Run: android-transfer-slop -gui\n' ;;
+  *":$target_dir:"*) printf 'Run from anywhere: android-transfer-slop -gui\n' ;;
   *) printf 'Add to PATH: export PATH="%s:$PATH"\n' "$target_dir" ;;
 esac
