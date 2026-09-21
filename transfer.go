@@ -21,15 +21,22 @@ func run(ctx context.Context, c config, out io.Writer) error {
 }
 
 func runWithDevice(ctx context.Context, c config, out io.Writer, dev device) (result error) {
-	if c.verify && c.safeDelete {
+	if c.verify && (c.safeDelete || c.quickDelete) {
 		return errors.New("verification and source deletion cannot run together")
+	}
+	if c.safeDelete && c.quickDelete {
+		return errors.New("safe and quick source deletion cannot run together")
 	}
 	progress := transferProgress{Phase: "scanning"}
 	inventoryComplete := false
-	if c.safeDelete {
+	if c.safeDelete || c.quickDelete {
 		defer func() {
 			if !inventoryComplete {
-				fmt.Fprintf(out, "Safe Source Delete incomplete: deleted: 0; not processed: unknown (inventory incomplete). No source files deleted. Error: %v\n", result)
+				mode := "Safe Source Delete"
+				if c.quickDelete {
+					mode = "Quick Source Delete"
+				}
+				fmt.Fprintf(out, "%s incomplete: deleted: 0; not processed: unknown (inventory incomplete). No source files deleted. Error: %v\n", mode, result)
 			}
 		}()
 	}
@@ -55,7 +62,7 @@ func runWithDevice(ctx context.Context, c config, out io.Writer, dev device) (re
 		}()
 	}
 	c.report(progress)
-	dest, err := openDestination(c.dest, !c.verify && !c.safeDelete)
+	dest, err := openDestination(c.dest, !c.verify && !c.safeDelete && !c.quickDelete)
 	if err != nil {
 		return err
 	}
@@ -95,8 +102,12 @@ func runWithDevice(ctx context.Context, c config, out io.Writer, dev device) (re
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	if c.safeDelete {
-		fmt.Fprintf(out, "Inventory: %d files. Source files will be deleted only after fresh destination verification; batch limits do not apply. Keep both folders idle.\n", len(entries))
+	if c.safeDelete || c.quickDelete {
+		mode := "Safe Source Delete"
+		if c.quickDelete {
+			mode = "Quick Source Delete"
+		}
+		fmt.Fprintf(out, "%s inventory: %d files. Destination files will not be copied or replaced.\n", mode, len(entries))
 	} else {
 		fmt.Fprintf(out, "Inventory: %d files. Existing copies will be hash-verified; transfer mode replaces mismatches with verified source copies.\n", len(entries))
 	}
@@ -107,12 +118,12 @@ func runWithDevice(ctx context.Context, c config, out io.Writer, dev device) (re
 	if c.verify {
 		progress.Phase = "verifying"
 	}
-	if c.safeDelete {
+	if c.safeDelete || c.quickDelete {
 		progress.Phase = "deleting"
 	}
 	c.report(progress)
-	if c.safeDelete {
-		return deleteFiles(ctx, c, out, dev, dest, entries, &progress)
+	if c.safeDelete || c.quickDelete {
+		return deleteFiles(ctx, c, out, dev, dest, entries, &progress, c.quickDelete)
 	}
 	if c.verify {
 		return verifyFiles(ctx, c, out, dev, dest, entries, &progress)

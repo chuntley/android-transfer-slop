@@ -416,14 +416,15 @@ func (g *guiServer) handleDestination(w http.ResponseWriter, r *http.Request) {
 }
 
 type guiStartRequest struct {
-	Serial     string   `json:"serial"`
-	Sources    []string `json:"sources"`
-	Dest       string   `json:"dest"`
-	BatchSize  int      `json:"batchSize"`
-	BatchBytes int64    `json:"batchBytes"`
-	MaxBatches int      `json:"maxBatches"`
-	Verify     bool     `json:"verify"`
-	SafeDelete bool     `json:"safeDelete"`
+	Serial      string   `json:"serial"`
+	Sources     []string `json:"sources"`
+	Dest        string   `json:"dest"`
+	BatchSize   int      `json:"batchSize"`
+	BatchBytes  int64    `json:"batchBytes"`
+	MaxBatches  int      `json:"maxBatches"`
+	Verify      bool     `json:"verify"`
+	SafeDelete  bool     `json:"safeDelete"`
+	QuickDelete bool     `json:"quickDelete"`
 }
 
 func (g *guiServer) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -431,8 +432,8 @@ func (g *guiServer) handleStart(w http.ResponseWriter, r *http.Request) {
 	if !guiDecode(w, r, &request) {
 		return
 	}
-	if request.Verify && request.SafeDelete {
-		guiError(w, http.StatusBadRequest, errors.New("choose verification or safe source deletion, not both"))
+	if (request.Verify && (request.SafeDelete || request.QuickDelete)) || (request.SafeDelete && request.QuickDelete) {
+		guiError(w, http.StatusBadRequest, errors.New("choose verification, safe source deletion, or quick source deletion, not multiple modes"))
 		return
 	}
 	if !validGUISerial(request.Serial) || len(request.Sources) != 1 || !filepath.IsAbs(request.Dest) || strings.ContainsAny(request.Dest, "\x00\r\n") || request.BatchSize < 1 || request.BatchBytes < 1 || request.MaxBatches < 0 {
@@ -447,7 +448,7 @@ func (g *guiServer) handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 	c.serial, c.dest = request.Serial, filepath.Clean(request.Dest)
 	c.batchSize, c.batchBytes, c.maxBatches, c.verify = request.BatchSize, request.BatchBytes, request.MaxBatches, request.Verify
-	c.safeDelete = request.SafeDelete
+	c.safeDelete, c.quickDelete = request.SafeDelete, request.QuickDelete
 	g.mu.Lock()
 	if g.closing || g.active || g.picking {
 		g.mu.Unlock()
@@ -492,7 +493,7 @@ func (g *guiServer) handleStart(w http.ResponseWriter, r *http.Request) {
 	g.status = guiStatus{State: "running", Logs: []string{}, RunID: g.status.RunID + 1, Settings: &request}
 	g.pending = ""
 	g.reportErr = nil
-	if c.verify || c.safeDelete {
+	if c.verify || c.safeDelete || c.quickDelete {
 		var err error
 		g.report, err = g.deps.createReport()
 		if err != nil {
@@ -564,7 +565,7 @@ func (g *guiServer) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	size, runID := g.reportSize, g.status.RunID
 	reportKind := "verify"
-	if g.status.Settings != nil && g.status.Settings.SafeDelete {
+	if g.status.Settings != nil && (g.status.Settings.SafeDelete || g.status.Settings.QuickDelete) {
 		reportKind = "delete"
 	}
 	g.mu.Unlock()

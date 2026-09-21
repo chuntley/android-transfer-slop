@@ -115,7 +115,7 @@ Panels have gently rounded corners, controls a tighter radius, and folder-browse
 
 Controls are at least 2.875rem tall. The primary transfer action uses blue with white text; verification and folder selection are visually secondary. Disabled controls have explicit subdued foreground and background colors. Inputs retain persistent labels. Invalid fields use the error color, with associated error text.
 
-Safe Source Delete sits beside Start / resume transfer, using the error color for its text and border and the existing error-notice tint (`#fff0ef`) on hover. It remains secondary to transfer and uses a native confirmation with the selected device and paths, irreversible consequences, and the idle-folder requirement. No run starts if confirmation is canceled. The control shares the settings fieldset's busy/disconnected locks.
+Safe Source Delete sits beside Start / resume transfer, using the error color for its text and border and the existing error-notice tint (`#fff0ef`) on hover. Quick Source Delete sits beside it as a separately confirmed destructive action with the same warning treatment and explicit metadata-only warning. Both remain secondary to transfer and use a native confirmation with the selected device and paths, irreversible consequences, and the idle-folder requirement. No run starts if confirmation is canceled. The controls share the settings fieldset's busy/disconnected locks.
 
 ### Focus and motion
 

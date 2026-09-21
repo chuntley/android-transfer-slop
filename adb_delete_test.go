@@ -135,6 +135,36 @@ func assertDeleteSourceRetained(t *testing.T, source string, data []byte) {
 	}
 }
 
+func TestADBRemoveIfMetadataMatchesChecksOnlyMetadata(t *testing.T) {
+	source, expected, data := deleteTestSource(t, "quick source.jpg")
+	d, _ := deleteADBFixture(t, "sha256sum-fail")
+	if err := d.RemoveIfMetadataMatches(context.Background(), source, expected.Size, expected.ModTime); err != nil {
+		t.Fatalf("metadata-only removal: %v", err)
+	}
+	if _, err := os.Lstat(source); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source remains after metadata-only removal: %v", err)
+	}
+
+	source, expected, data = deleteTestSource(t, "quick mismatch.jpg")
+	if err := d.RemoveIfMetadataMatches(context.Background(), source, expected.Size+1, expected.ModTime); !errors.Is(err, errSourceChanged) {
+		t.Fatalf("size mismatch error = %v", err)
+	}
+	assertDeleteSourceRetained(t, source, data)
+}
+
+func TestADBRemoveIfMetadataMatchesRetainsOnDeviceCheckFailures(t *testing.T) {
+	for _, fault := range []string{"stat-fail", "stat-malformed", "stat-extra-newline"} {
+		t.Run(fault, func(t *testing.T) {
+			source, expected, data := deleteTestSource(t, "quick failure.jpg")
+			d, _ := deleteADBFixture(t, fault)
+			if err := d.RemoveIfMetadataMatches(context.Background(), source, expected.Size, expected.ModTime); err == nil {
+				t.Fatal("metadata failure was accepted")
+			}
+			assertDeleteSourceRetained(t, source, data)
+		})
+	}
+}
+
 func TestADBRemoveVerifiedExactFileAndHostileNames(t *testing.T) {
 	for _, name := range []string{"ordinary.jpg", "-option.jpg", "quote'\"雪\n$(printf injected);*.jpg"} {
 		t.Run(name, func(t *testing.T) {

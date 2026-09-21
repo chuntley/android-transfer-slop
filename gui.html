@@ -93,9 +93,9 @@
           </details>
           <div class="transfer-actions">
             <p id="form-error" class="error" role="alert" hidden></p>
-            <div class="action-row"><button id="start" class="primary" type="submit">Start / resume transfer</button><button id="safe-delete" class="danger" type="button" aria-describedby="delete-help">Safe Source Delete</button><button id="verify" type="button">Verify only</button></div>
+            <div class="action-row"><button id="start" class="primary" type="submit">Start / resume transfer</button><button id="safe-delete" class="danger" type="button" aria-describedby="delete-help">Safe Source Delete</button><button id="quick-delete" class="danger quick-delete" type="button" aria-describedby="delete-help">Quick Source Delete</button><button id="verify" type="button">Verify only</button></div>
             <p class="help transfer-policy">The phone is the source of truth. Matching copies are skipped; mismatches are replaced only after a fresh copy is verified. Verify only checks without changing copies.</p>
-            <p id="delete-help" class="help">Safe Source Delete permanently removes phone files only after a fresh SHA-256 match with the destination. Missing or mismatched copies stay on the phone. Keep both folders idle and a second backup. Batch limits do not apply.</p>
+            <p id="delete-help" class="help">Safe Source Delete permanently removes phone files only after a fresh SHA-256 match with the destination. Quick Source Delete checks path, size, and modification time only; it does not hash contents, so same-size rewrites or restored timestamps can be deleted. Missing or mismatched files stay on the phone. Keep both folders idle and a second backup. Batch limits do not apply.</p>
           </div>
         </fieldset>
       </form>

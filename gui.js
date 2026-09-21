@@ -9,7 +9,7 @@
     "browse-error", "folder-list", "folder-pagination", "previous-folders",
     "next-folders", "folder-page", "folder-breadcrumbs", "folder-row", "sources-error",
     "destination", "choose-destination", "destination-error", "advanced",
-    "batch-size", "batch-bytes", "max-batches", "form-error", "start", "verify", "safe-delete",
+    "batch-size", "batch-bytes", "max-batches", "form-error", "start", "verify", "safe-delete", "quick-delete",
     "stop", "run-panel", "run-status", "progress", "progress-counts", "current-file",
     "run-error", "stop-error", "activity-log", "connection-error",
     "verification-counts", "verification-help", "download-report", "report-error",
@@ -110,6 +110,7 @@
     setDisabled(ui["start"], refreshing || !readyDevice());
     setDisabled(ui["verify"], refreshing || !readyDevice());
     setDisabled(ui["safe-delete"], refreshing || !readyDevice());
+    setDisabled(ui["quick-delete"], refreshing || !readyDevice());
     setDisabled(ui["phone-path"], !readyDevice());
     setDisabled(ui["choose-source"], browsing || !readyDevice());
     setDisabled(ui["up-folder"], browsing || !readyDevice() || !browsedPath || browsedPath === "/");
@@ -172,7 +173,7 @@
     if (!device) return "No devices found. Connect a USB data cable, enable USB debugging, then select Refresh.";
     if (device.state === "unauthorized") return "Unlock your phone and allow this computer’s USB debugging request, then select Refresh.";
     if (device.state !== "device") return `Device is ${device.state}. Reconnect the cable, unlock the phone, then select Refresh.`;
-    return "Connected. Transfer and verification keep originals; Safe Source Delete is a separate, confirmed action.";
+    return "Connected. Transfer and verification keep originals. Source deletion is always a separate, confirmed action.";
   }
 
   function selectDevice() {
@@ -309,7 +310,9 @@
     const verified = progress.verified || 0;
     const copied = progress.copied || 0;
     const verifying = Boolean(status.settings?.verify);
-    const deleting = Boolean(status.settings?.safeDelete);
+    const safeDeleting = Boolean(status.settings?.safeDelete);
+    const quickDeleting = Boolean(status.settings?.quickDelete);
+    const deleting = safeDeleting || quickDeleting;
     const deleted = progress.deleted || 0;
     const checked = progress.checked || 0;
     const processed = verifying || deleting ? checked : verified;
@@ -331,9 +334,14 @@
         : "Verification could not finish. Review the error and partial report below.";
     }
     if (deleting) {
-      labels.running = scanning ? "Scanning phone files before deletion…" : "Verifying copies and deleting matching source files…";
+      const mode = quickDeleting ? "Quick Source Delete" : "Safe Source Delete";
+      labels.running = scanning
+        ? `Scanning phone files before ${quickDeleting ? "quick deletion" : "deletion"}…`
+        : quickDeleting
+          ? "Checking file metadata and deleting matching source files…"
+          : "Verifying copies and deleting matching source files…";
       labels.stopping = "Stopping source deletion. Files already deleted cannot be restored by this app.";
-      labels.completed = "Safe Source Delete completed. All selected files were verified and deleted from the phone.";
+      labels.completed = `${mode} completed. All selected files were checked and deleted from the phone.`;
       labels.stopped = "Source deletion stopped. Review the report before running again.";
       labels.failed = !scanning && checked === total
         ? "Source deletion finished with issues. Review the counts and report."
@@ -358,7 +366,9 @@
     setHidden(ui["verification-counts"], !verifying && !deleting);
     setHidden(ui["verification-help"], !verifying && !deleting);
     setText(ui["verification-help"], deleting
-      ? "Missing, mismatched, changed, or unverifiable files are retained. A failed or interrupted delete may have reached the phone; check the source before rerunning. Destination copies are not changed. Download the report for details."
+      ? quickDeleting
+        ? "Quick Source Delete checks path, size, and modification time only; it does not hash contents. Same-size rewrites or restored timestamps can evade this check. Missing, mismatched, changed, or unverifiable files are retained. Destination copies are not changed. Keep both folders idle and a second backup."
+        : "Safe Source Delete requires a fresh SHA-256 match. Missing, mismatched, changed, or unverifiable files are retained. A failed or interrupted delete may have reached the phone; check the source before rerunning. Destination copies are not changed. Keep both folders idle and a second backup."
       : "Transfer mode repairs missing or mismatched copies using the phone’s version. Changed sources need a fresh check. Download the report for details; a download during a run is a partial report.");
     setText(ui["download-report"], deleting ? "Download deletion report" : "Download verification report");
     setText(ui["verification-counts"], `${progress.missing || 0} missing · ${progress.mismatched || 0} mismatched · ${progress.changed || 0} source changed · ${progress.errors || 0} errors`);
@@ -392,7 +402,7 @@
     }
   }
 
-  async function startTransfer(verify, safeDelete = false) {
+  async function startTransfer(verify, safeDelete = false, quickDelete = false) {
     if (activeRun() || busy || refreshing || disconnected || !statusKnown) return;
     for (const id of ["form-error", "sources-error", "destination-error", "stop-error"]) message(id, "");
     ui.destination.removeAttribute("aria-invalid");
@@ -426,9 +436,12 @@
       }
       values[key] = value;
     }
-    const settings = { serial: selectedSerial, sources: [source], dest: ui.destination.value, ...values, verify, safeDelete };
+    const settings = { serial: selectedSerial, sources: [source], dest: ui.destination.value, ...values, verify, safeDelete, quickDelete };
     if (safeDelete && !window.confirm(
-      `Permanently delete verified source files?\n\nPhone: ${settings.serial}\nSource: ${source}\nDestination: ${settings.dest}\n\nOnly files with freshly matching SHA-256 content will be deleted. Missing or mismatched copies are retained. All source files are checked; batch limits do not apply.\n\nKeep both folders idle and keep a second backup. Deletion cannot be undone by this app.`
+      `Permanently delete source files after SHA-256 verification?\n\nPhone: ${settings.serial}\nSource: ${source}\nDestination: ${settings.dest}\n\nOnly files with freshly matching SHA-256 content will be deleted. Missing or mismatched copies are retained. All source files are checked; batch limits do not apply.\n\nKeep both folders idle and keep a second backup. Deletion cannot be undone by this app.`
+    )) return;
+    if (quickDelete && !window.confirm(
+      `Quickly delete source files using basic metadata only?\n\nPhone: ${settings.serial}\nSource: ${source}\nDestination: ${settings.dest}\n\nThis checks path, size, and modification time but does NOT hash file contents. Same-size rewrites or restored timestamps can be deleted. Missing or mismatched files are retained. Keep both folders idle and keep a second backup.\n\nDeletion cannot be undone by this app.`
     )) return;
     busy = true;
     updateControls();
@@ -442,7 +455,7 @@
       attemptedStart = true;
       await request("/api/start", settings);
       runState = "running";
-      setText(ui["run-status"], safeDelete ? "Starting safe source deletion…" : verify ? "Starting verification…" : "Starting transfer…");
+      setText(ui["run-status"], quickDelete ? "Starting quick source deletion…" : safeDelete ? "Starting safe source deletion…" : verify ? "Starting verification…" : "Starting transfer…");
       ui["run-panel"].scrollIntoView({ block: "nearest" });
     } catch (error) {
       message("form-error", error.message);
@@ -463,6 +476,7 @@
   });
   ui.verify.addEventListener("click", () => startTransfer(true));
   ui["safe-delete"].addEventListener("click", () => startTransfer(false, true));
+  ui["quick-delete"].addEventListener("click", () => startTransfer(false, false, true));
   ui["refresh-devices"].addEventListener("click", refreshDevices);
   ui.device.addEventListener("change", selectDevice);
   ui["choose-source"].addEventListener("click", () => browse(ui["phone-path"].value || "/sdcard"));

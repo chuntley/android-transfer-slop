@@ -34,6 +34,7 @@ type config struct {
 	timeout           time.Duration
 	verify            bool
 	safeDelete        bool // GUI-only, explicitly confirmed destructive operation
+	quickDelete       bool // GUI-only, explicitly confirmed metadata-only destructive operation
 	gui, noOpen       bool
 	onProgress        func(transferProgress)
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type deletingMemoryDevice struct {
@@ -47,6 +48,34 @@ func (d *deletingMemoryDevice) RemoveVerified(ctx context.Context, source string
 	return nil
 }
 
+func (d *deletingMemoryDevice) RemoveIfMetadataMatches(ctx context.Context, source string, size, modTime int64) error {
+	d.attempts = append(d.attempts, source)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.beforeRemove != nil {
+		d.beforeRemove(source)
+	}
+	actual, err := d.Inspect(ctx, source)
+	if err != nil {
+		return err
+	}
+	if actual.Size != size || actual.ModTime != modTime {
+		return errSourceChanged
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.removeErr != nil {
+		if d.removeOnError {
+			delete(d.files, source)
+		}
+		return d.removeErr
+	}
+	delete(d.files, source)
+	return nil
+}
+
 func seedDeleteCopies(t *testing.T, c config, d *memoryDevice) {
 	t.Helper()
 	for source, data := range d.files {
@@ -64,7 +93,11 @@ func runDeleteTest(t *testing.T, ctx context.Context, c config, d device) (trans
 	t.Helper()
 	var latest transferProgress
 	previous := c.onProgress
-	c.safeDelete = true
+	if c.quickDelete {
+		c.safeDelete = false
+	} else {
+		c.safeDelete = true
+	}
 	c.onProgress = func(p transferProgress) {
 		latest = p
 		if previous != nil {
@@ -74,6 +107,39 @@ func runDeleteTest(t *testing.T, ctx context.Context, c config, d device) (trans
 	var out bytes.Buffer
 	err := runWithDevice(ctx, c, &out, d)
 	return latest, out.String(), err
+}
+
+func TestQuickDeleteChecksMetadataOnlyAndNeverDeletesDestination(t *testing.T) {
+	c := testConfig(t)
+	c.quickDelete = true
+	d := &deletingMemoryDevice{memoryDevice: testDevice()}
+	d.files["/sdcard/DCIM/size-mismatch"] = []byte("source")
+	seedDeleteCopies(t, c, d.memoryDevice)
+	target := savedPath(c, "/sdcard/DCIM/photo.jpg")
+	replacement := bytes.Repeat([]byte{'x'}, len(d.files["/sdcard/DCIM/photo.jpg"]))
+	if err := os.WriteFile(target, replacement, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, time.Unix(d.mtime, 0), time.Unix(d.mtime, 0)); err != nil {
+		t.Fatal(err)
+	}
+	progress, report, err := runDeleteTest(t, context.Background(), c, d)
+	if err == nil || progress.Checked != 2 || progress.Verified != 1 || progress.Deleted != 1 || progress.Mismatched != 1 || progress.Errors != 0 {
+		t.Fatalf("quick deletion accounting failed: error=%v; progress=%#v\n%s", err, progress, report)
+	}
+	if _, ok := d.files["/sdcard/DCIM/size-mismatch"]; !ok || len(d.attempts) != 1 {
+		t.Fatalf("metadata-mismatched source reached device deletion or was deleted: files=%v; attempts=%v", d.files, d.attempts)
+	}
+	if _, ok := d.files["/sdcard/DCIM/photo.jpg"]; ok {
+		t.Fatalf("metadata-matching source was retained: %v", d.files)
+	}
+	if _, ok := d.files["/sdcard/DCIM/size-mismatch"]; !ok {
+		t.Fatalf("metadata-mismatched source was deleted: %v", d.files)
+	}
+	assertContent(t, target, replacement)
+	if !strings.Contains(report, "contents were not hashed") {
+		t.Fatalf("quick deletion did not disclose metadata-only verification: %s", report)
+	}
 }
 
 func TestSafeDeleteRemovesOnlyMatchingFilesWithoutChangingDestination(t *testing.T) {

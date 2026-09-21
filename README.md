@@ -1,8 +1,8 @@
 # Android Transfer SLOP
 
-Copy files from an Android phone to your computer over ADB, with SHA-256 verification and resumable runs. A local browser interface handles folder selection, progress, verification reports, and optional **Safe Source Delete**.
+Copy files from an Android phone to your computer over ADB, with SHA-256 verification and resumable runs. A local browser interface handles folder selection, progress, verification reports, and optional **Safe Source Delete** or explicitly weaker **Quick Source Delete**.
 
-**Transfer and Verify only never change phone originals. Source deletion is a separate, explicitly confirmed action.** The phone is authoritative: matching destination files are skipped; mismatches are replaced only after a fresh copy is verified.
+**Transfer and Verify only never change phone originals. Source deletion is always a separate, explicitly confirmed action.** The phone is authoritative: matching destination files are skipped; mismatches are replaced only after a fresh copy is verified.
 
 ## Install the latest release
 
@@ -92,7 +92,8 @@ For a small trial, open **Advanced settings**, set **Files per batch** to `10` a
 | --- | --- | --- |
 | **Start / resume transfer** | Unchanged | Copies missing files, skips hash matches, replaces mismatches only after verifying a fresh copy |
 | **Verify only** | Unchanged | Reads and reports; never repairs or replaces files |
-| **Safe Source Delete** | Permanently deletes only files with freshly verified destination copies | Reads and flushes existing copies; never copies, repairs, or replaces them |
+| **Safe Source Delete** | Permanently deletes only files with freshly SHA-256-verified destination copies | Reads and flushes existing copies; never copies, repairs, or replaces them |
+| **Quick Source Delete** | Permanently deletes only files whose path, size, and modification time still match inventory | Reads and flushes existing copies; never copies, repairs, or replaces them; does not hash contents |
 
 **Stop safely** interrupts a run. Completed copies remain, and completed deletions cannot be undone. **Closing the browser does not stop the run**; use Stop safely or press **Ctrl-C** in the terminal. Reopening the page restores the current run’s settings while the server is running.
 
@@ -149,6 +150,14 @@ All regular source files in the selected folder and its subfolders are considere
 Safe Source Delete remains content-based rather than size/mtime-based; same-size rewrites and restored timestamps are not safe deletion proofs. The current path hashes each local file once, then uses one final device-side verification/removal command per attempted file. The destructive action remains a separate button so transfer cannot silently delete phone originals.
 
 **Keep both source and destination folders idle throughout the run.** ADB cannot atomically combine verification and removal, and an open destination descriptor cannot prevent another application from changing its contents or pathname. Rechecks narrow these races; they cannot eliminate them. Hash equality proves a current byte-for-byte copy, not a healthy original, readable photo, or failure-proof backup drive.
+
+## Quick Source Delete
+
+**Quick Source Delete is intentionally weaker and permanently destructive. It does not hash file contents.** Use it only when the source and destination are trusted, idle, and protected by another backup.
+
+The separate **Quick Source Delete** button checks the selected regular-file path, size, and modification time against the completed phone inventory and the existing destination copy. It never creates, replaces, or removes destination files. Missing, size-mismatched, timestamp-mismatched, changed, or otherwise unverifiable files stay on the phone.
+
+Same-size content rewrites, copied-back files with restored timestamps, and writes that race the final check can evade metadata-only verification. Choose **Safe Source Delete** when byte-for-byte content proof is required.
 
 ## Troubleshooting and limits
 

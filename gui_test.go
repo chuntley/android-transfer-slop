@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -188,6 +189,8 @@ func TestGUIValidatesStartBeforeRunning(t *testing.T) {
 		{"zero-bytes", func(r *guiStartRequest) { r.BatchBytes = 0 }},
 		{"negative-batches", func(r *guiStartRequest) { r.MaxBatches = -1 }},
 		{"conflicting-modes", func(r *guiStartRequest) { r.Verify, r.SafeDelete = true, true }},
+		{"quick-conflicting-modes", func(r *guiStartRequest) { r.Verify, r.QuickDelete = true, true }},
+		{"safe-and-quick-conflicting-modes", func(r *guiStartRequest) { r.SafeDelete, r.QuickDelete = true, true }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			r := guiValidStart()
@@ -822,4 +825,36 @@ func TestGUISafeDeleteRequiresExplicitModeAndFreshVerification(t *testing.T) {
 		t.Fatalf("fresh matching copy was not safely deleted: %+v", status)
 	}
 	assertContent(t, savedPath(c, "/sdcard/DCIM/photo.jpg"), []byte("irreplaceable photo"))
+}
+
+func TestGUIQuickDeleteUsesMetadataChecksAndPreservesDestination(t *testing.T) {
+	c := testConfig(t)
+	d := &deletingMemoryDevice{memoryDevice: testDevice()}
+	seedDeleteCopies(t, c, d.memoryDevice)
+	target := savedPath(c, "/sdcard/DCIM/photo.jpg")
+	replacement := bytes.Repeat([]byte{'q'}, len(d.files["/sdcard/DCIM/photo.jpg"]))
+	if err := os.WriteFile(target, replacement, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, time.Unix(d.mtime, 0), time.Unix(d.mtime, 0)); err != nil {
+		t.Fatal(err)
+	}
+	g := testGUI(t, guiDependencies{runner: func(ctx context.Context, cfg config, out io.Writer) error {
+		return runWithDevice(ctx, cfg, out, d)
+	}})
+	request := guiValidStart()
+	request.Dest = c.dest
+	request.QuickDelete = true
+	if w := guiCall(g, "POST", "/api/start", guiStartBody(t, request)); w.Code != http.StatusOK {
+		t.Fatalf("start status %d: %s", w.Code, w.Body.String())
+	}
+	status := guiAwaitState(t, g, "completed")
+	if !status.Settings.QuickDelete || status.Progress.Verified != 1 || status.Progress.Deleted != 1 || len(d.files) != 0 {
+		t.Fatalf("quick delete was not reported or completed: %+v", status)
+	}
+	assertContent(t, target, replacement)
+	report := guiCall(g, "GET", "/api/report", "")
+	if report.Code != http.StatusOK || !strings.Contains(report.Body.String(), "contents were not hashed") {
+		t.Fatalf("quick deletion disclosure missing: %d %s", report.Code, report.Body.String())
+	}
 }

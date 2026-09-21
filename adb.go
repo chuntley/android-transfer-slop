@@ -494,3 +494,73 @@ printf 'deleted\n'
 		return errors.New("uncertain source removal: malformed device response")
 	}
 }
+
+// RemoveIfMetadataMatches conditionally removes a regular source file after
+// checking only its size and modification time. It is intentionally weaker
+// than RemoveVerified and must remain a separate, explicitly confirmed mode.
+func (d *adbDevice) RemoveIfMetadataMatches(ctx context.Context, source string, size, modTime int64) error {
+	if !validADBPath(source) {
+		return errors.New("source must be a clean absolute path without NUL")
+	}
+	if size < 0 {
+		return errors.New("removal requires a nonnegative source size")
+	}
+	command := "p=" + shellQuote(source) + "\nwant_meta=" +
+		shellQuote(fmt.Sprintf("%d %d", size, modTime)) + `
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+changed() { printf 'changed\n'; exit 0; }
+unsigned() {
+	case "$1" in ''|*[!0-9]*) fail 'malformed stat number';; esac
+}
+signed() {
+	case "$1" in -*) unsigned "${1#-}";; *) unsigned "$1";; esac
+}
+regular() {
+	if [ -L "$p" ] || [ ! -f "$p" ]; then
+		fail 'source is not a regular file'
+	fi
+}
+read_stat() {
+	metadata=$(stat -c '%s %Y %d %i %f %Z' -- "$p" && printf '|') || fail 'source stat failed'
+	case "$metadata" in
+		*'
+|') metadata=${metadata%'
+|'};;
+		*) fail 'malformed stat framing';;
+	esac
+	set -f
+	set -- $metadata
+	[ "$#" -eq 6 ] || fail 'malformed stat fields'
+	[ "$metadata" = "$1 $2 $3 $4 $5 $6" ] || fail 'malformed stat spacing'
+	unsigned "$1"
+	signed "$2"
+	unsigned "$3"
+	unsigned "$4"
+	case "$5" in ''|*[!0-9a-fA-F]*) fail 'malformed stat mode';; esac
+	signed "$6"
+	source_meta="$1 $2"
+}
+regular
+read_stat
+before=$metadata
+[ "$source_meta" = "$want_meta" ] || changed
+regular
+read_stat
+[ "$before" = "$metadata" ] || changed
+regular
+rm -- "$p" || fail 'source removal failed'
+printf 'deleted\n'
+`
+	out, err := d.boundRun(ctx, "shell", "-T", command)
+	if err != nil {
+		return fmt.Errorf("remove metadata-checked device file: %w", err)
+	}
+	switch string(out) {
+	case "changed\n":
+		return errSourceChanged
+	case "deleted\n":
+		return nil
+	default:
+		return errors.New("uncertain source removal: malformed device response")
+	}
+}

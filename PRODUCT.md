@@ -12,7 +12,7 @@ People copying large Android photo and file collections to their computer or an 
 
 ## Product Purpose
 
-Android Transfer SLOP copies selected phone-folder contents through ADB and verifies local copies against source SHA-256 hashes. Transfer and verification preserve originals; explicitly confirmed Safe Source Delete removes only source files with freshly verified destination copies.
+Android Transfer SLOP copies selected phone-folder contents through ADB and verifies local copies against source SHA-256 hashes. Transfer and verification preserve originals; explicitly confirmed Safe Source Delete or weaker Quick Source Delete removes source files only after its selected checks pass.
 
 ## Operating Context
 
@@ -27,6 +27,7 @@ A local Go server serves a browser interface at 127.0.0.1. The phone connects ov
 - Rehash existing files on restart; no cached success database or partial-file continuation.
 - Verify-only reports problems without repairing copies. Extra destination files and phone originals are left alone.
 - Safe Source Delete is a separate GUI action with destructive confirmation, fresh source/destination hashing, durable local copies, path/identity guards, stop controls, and a downloadable deletion report. It ignores transfer batch limits and never repairs destination files. Both folders must stay idle: ADB cannot make verification and removal atomic.
+- Quick Source Delete is a separate, explicitly weaker GUI action. It checks regular-file path, size, and modification time only; it never hashes contents, never changes destination files, and warns that same-size rewrites or restored timestamps can evade the check.
 - Destination storage requires advisory locks and durable file operations. Filesystems without hard links use an exclusive-copy fallback for new files.
 - Preserve the existing Go, HTML, CSS, and vanilla JavaScript implementation and local-only security model.
 

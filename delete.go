@@ -20,27 +20,46 @@ type sourceDeleter interface {
 	RemoveVerified(context.Context, string, fingerprint) error
 }
 
+type sourceMetadataDeleter interface {
+	RemoveIfMetadataMatches(context.Context, string, int64, int64) error
+}
+
 var errDeletionUnconfirmed = errors.New("source deletion was not confirmed; inspect the phone before retrying")
 
-func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest *destination, entries []entry, progress *transferProgress) (result error) {
+func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest *destination, entries []entry, progress *transferProgress, quick bool) (result error) {
 	uncertain := 0
+	mode := "Safe Source Delete"
+	if quick {
+		mode = "Quick Source Delete"
+	}
 	defer func() {
 		retained, unprocessed := progress.Checked-progress.Deleted-uncertain, len(entries)-progress.Checked
 		status := "complete"
 		if result != nil || retained != 0 || uncertain != 0 || unprocessed != 0 || progress.Errors != 0 {
 			status = "incomplete"
 			if result == nil {
-				result = fmt.Errorf("safe source delete retained %d checked files; %d not processed", retained, unprocessed)
+				result = fmt.Errorf("%s retained %d checked files; %d not processed", mode, retained, unprocessed)
 			}
 		}
-		fmt.Fprintf(out, "Safe source delete %s: checked: %d; verified: %d; deleted: %d; retained: %d; deletion unconfirmed: %d; missing: %d; mismatched: %d; changed: %d; errors: %d; not processed: %d. Destination files were not copied or replaced.\n",
-			status, progress.Checked, progress.Verified, progress.Deleted, retained, uncertain, progress.Missing, progress.Mismatched, progress.Changed, progress.Errors, unprocessed)
+		fmt.Fprintf(out, "%s %s: checked: %d; verified: %d; deleted: %d; retained: %d; deletion unconfirmed: %d; missing: %d; mismatched: %d; changed: %d; errors: %d; not processed: %d. Destination files were not copied or replaced.\n",
+			mode, status, progress.Checked, progress.Verified, progress.Deleted, retained, uncertain, progress.Missing, progress.Mismatched, progress.Changed, progress.Errors, unprocessed)
 	}()
-	deleter, ok := dev.(sourceDeleter)
-	if !ok {
-		progress.Errors++
-		c.report(*progress)
-		return errors.New("device does not support conditional safe source deletion; no source files removed")
+	var safeDeleter sourceDeleter
+	var metadataDeleter sourceMetadataDeleter
+	if quick {
+		metadataDeleter, _ = dev.(sourceMetadataDeleter)
+		if metadataDeleter == nil {
+			progress.Errors++
+			c.report(*progress)
+			return errors.New("device does not support metadata-only source deletion; no source files removed")
+		}
+	} else {
+		safeDeleter, _ = dev.(sourceDeleter)
+		if safeDeleter == nil {
+			progress.Errors++
+			c.report(*progress)
+			return errors.New("device does not support conditional safe source deletion; no source files removed")
+		}
 	}
 	for _, file := range entries {
 		if err := ctx.Err(); err != nil {
@@ -48,7 +67,13 @@ func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest 
 		}
 		progress.Current = file.Path
 		c.report(*progress)
-		verified, deleted, err := deleteFile(ctx, c, deleter, dest, file)
+		var verified, deleted bool
+		var err error
+		if quick {
+			verified, deleted, err = quickDeleteFile(ctx, c, metadataDeleter, dest, file)
+		} else {
+			verified, deleted, err = deleteFile(ctx, c, safeDeleter, dest, file)
+		}
 		progress.Checked++
 		if verified {
 			progress.Verified++
@@ -58,7 +83,11 @@ func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest 
 		}
 		stop := false
 		if err == nil {
-			fmt.Fprintf(out, "  DELETED %q (%d bytes): freshly SHA-256 verified against the durable destination copy\n", file.Path, file.Size)
+			proof := "freshly SHA-256 verified"
+			if quick {
+				proof = "size and modification time checked only; contents were not hashed"
+			}
+			fmt.Fprintf(out, "  DELETED %q (%d bytes): %s against the destination copy\n", file.Path, file.Size, proof)
 		} else {
 			var category string
 			switch {
@@ -86,7 +115,7 @@ func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest 
 		}
 		c.report(*progress)
 		if stop {
-			return fmt.Errorf("safe source delete %q: %w", file.Path, err)
+			return fmt.Errorf("%s %q: %w", mode, file.Path, err)
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -244,6 +273,70 @@ func deleteFile(ctx context.Context, c config, deleter sourceDeleter, dest *dest
 	// noncooperating writers must remain idle on both sides. RemoveVerified does
 	// a final fresh source check, but pathname races cannot be eliminated by ADB.
 	if err := deleter.RemoveVerified(ctx, file.Path, source); err != nil {
+		if !errors.Is(err, errSourceChanged) {
+			err = errors.Join(errDeletionUnconfirmed, err)
+		}
+		return false, false, err
+	}
+	return true, true, nil
+}
+
+func quickDeleteFile(ctx context.Context, c config, deleter sourceMetadataDeleter, dest *destination, file entry) (verified, deleted bool, result error) {
+	rel, err := localPath(file.Path, c.sources)
+	if err != nil {
+		return false, false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	parts, err := inspectDeletePath(dest, rel)
+	if err != nil {
+		return false, false, localFileError(err)
+	}
+	f, err := dest.root.OpenFile(rel, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return false, false, fmt.Errorf("opening destination after path inspection: %w", err)
+	}
+	defer func() { result = errors.Join(result, f.Close()) }()
+	before := parts[len(parts)-1].info
+	opened, err := f.Stat()
+	if err != nil {
+		return false, false, err
+	}
+	if !unchangedDeleteCopy(before, opened) {
+		return false, false, fmt.Errorf("destination changed while opening: %q", rel)
+	}
+	if err := recheckDeletePath(dest, parts); err != nil {
+		return false, false, err
+	}
+	if before.Size() != file.Size || before.ModTime().Unix() != file.ModTime {
+		return false, false, errContentMismatch
+	}
+	if err := f.Sync(); err != nil {
+		return false, false, fmt.Errorf("flushing destination before source deletion: %w", err)
+	}
+	for i := len(parts) - 2; i >= 0; i-- {
+		if err := dest.syncDir(parts[i].name); err != nil {
+			return false, false, fmt.Errorf("flushing destination directory: %w", err)
+		}
+	}
+	if err := dest.syncDir("."); err != nil {
+		return false, false, fmt.Errorf("flushing destination root: %w", err)
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return false, false, err
+	}
+	if !unchangedDeleteCopy(before, after) || after.Size() != file.Size || after.ModTime().Unix() != file.ModTime {
+		return false, false, errContentMismatch
+	}
+	if err := recheckDeletePath(dest, parts); err != nil {
+		return false, false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+	if err := deleter.RemoveIfMetadataMatches(ctx, file.Path, file.Size, file.ModTime); err != nil {
 		if !errors.Is(err, errSourceChanged) {
 			err = errors.Join(errDeletionUnconfirmed, err)
 		}
