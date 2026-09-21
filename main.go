@@ -60,9 +60,10 @@ func parseConfig(args []string, out io.Writer) (config, error) {
 
 Copies regular files through ADB, never MTP. Transfer and verification never modify
 device files. GUI Safe Source Delete is a separate, confirmed destructive action
-that requires fresh matching destination hashes. Keep both folders idle.
+that requires fresh matching destination hashes. GUI Quick Source Delete is a
+separate, explicitly weaker action that checks only path, size, and modification
+time and does not hash contents. Keep both folders idle.
 Enable USB debugging and authorize this computer on the unlocked phone first.
-Requires a modern Android shell with find, stat, and sha256sum.
 In GUI mode, choose transfer settings in the interface; only -adb, -timeout,
 and -no-open configure its launch.
 
