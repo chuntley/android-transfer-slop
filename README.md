@@ -143,7 +143,10 @@ All regular source files in the selected folder and its subfolders are considere
 - Current source and destination bytes must match by SHA-256. The local file and directory entries are flushed before deletion, and the local descriptor stays open through removal.
 - A final serial-pinned ADB command rehashes the source and checks stable size, modification time, inode, device, mode, and change time before removing that exact file. Removal is never recursive.
 - Missing or mismatched copies and changed sources are retained. Unsafe filesystem or device errors stop the run.
+
 - A failed or interrupted ADB command may have deleted a file before its reply was lost. Such outcomes are reported as **unconfirmed**, never presumed retained. Inspect the source before retrying.
+
+Safe Source Delete remains content-based rather than size/mtime-based; same-size rewrites and restored timestamps are not safe deletion proofs. The current path hashes each local file once, then uses one final device-side verification/removal command per attempted file. The destructive action remains a separate button so transfer cannot silently delete phone originals.
 
 **Keep both source and destination folders idle throughout the run.** ADB cannot atomically combine verification and removal, and an open destination descriptor cannot prevent another application from changing its contents or pathname. Rechecks narrow these races; they cannot eliminate them. Hash equality proves a current byte-for-byte copy, not a healthy original, readable photo, or failure-proof backup drive.
 

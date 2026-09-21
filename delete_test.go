@@ -92,6 +92,9 @@ func TestSafeDeleteRemovesOnlyMatchingFilesWithoutChangingDestination(t *testing
 	if len(d.files) != 0 || d.pulls != 0 || progress.Checked != 2 || progress.Verified != 2 || progress.Deleted != 2 || progress.Errors != 0 {
 		t.Fatalf("matching deletion failed: files=%v; pulls=%d; progress=%#v", d.files, d.pulls, progress)
 	}
+	if d.inspections != 2 {
+		t.Fatalf("safe delete performed redundant source inspections: %d, want 2", d.inspections)
+	}
 	assertContent(t, savedPath(c, "/sdcard/DCIM/photo.jpg"), []byte("irreplaceable photo"))
 	assertContent(t, savedPath(c, "/sdcard/DCIM/album/empty"), nil)
 	after, err := os.Stat(savedPath(c, "/sdcard/DCIM/photo.jpg"))
@@ -120,10 +123,10 @@ func TestSafeDeleteRetainsMissingAndMismatchedCopiesAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	progress, report, err := runDeleteTest(t, context.Background(), c, d)
-	if err == nil || progress.Checked != 4 || progress.Deleted != 1 || progress.Verified != 1 || progress.Missing != 2 || progress.Mismatched != 1 || progress.Errors != 0 {
+	if err == nil || progress.Checked != 4 || progress.Deleted != 1 || progress.Verified != 1 || progress.Missing != 2 || progress.Changed != 1 || progress.Errors != 0 {
 		t.Fatalf("unsafe retention accounting: error=%v; progress=%#v\n%s", err, progress, report)
 	}
-	if len(d.files) != 3 || len(d.attempts) != 1 || d.attempts[0] != "/sdcard/DCIM/z-match" || d.pulls != 0 {
+	if len(d.files) != 3 || len(d.attempts) != 2 || d.attempts[0] != "/sdcard/DCIM/c-mismatch" || d.attempts[1] != "/sdcard/DCIM/z-match" || d.pulls != 0 {
 		t.Fatalf("missing/mismatched files were removed or copied: files=%v; attempts=%v; pulls=%d", d.files, d.attempts, d.pulls)
 	}
 	assertContent(t, savedPath(c, "/sdcard/DCIM/c-mismatch"), []byte("modified"))
@@ -137,9 +140,9 @@ func TestSafeDeleteRetainsMissingAndMismatchedCopiesAndContinues(t *testing.T) {
 
 func TestSafeDeleteRejectsChangedSourceAtBothChecks(t *testing.T) {
 	for _, finalCheck := range []bool{false, true} {
-		name := "inventory"
-		if finalCheck {
-			name = "conditional-removal"
+		name := "before-final-removal"
+		if !finalCheck {
+			name = "before-local-hash"
 		}
 		t.Run(name, func(t *testing.T) {
 			c := testConfig(t)
@@ -158,10 +161,16 @@ func TestSafeDeleteRejectsChangedSourceAtBothChecks(t *testing.T) {
 			if finalCheck {
 				d.beforeRemove = mutate
 			} else {
-				d.beforeInspect = func(_ int, source string) {
-					mutate(source)
-					// The other file's inventory timestamp remains valid.
-					if source == "/sdcard/DCIM/z-match" {
+				mutated := false
+				c.onProgress = func(p transferProgress) {
+					if p.Phase != "deleting" {
+						return
+					}
+					if p.Current == "/sdcard/DCIM/photo.jpg" && !mutated {
+						mutate(p.Current)
+						mutated = true
+					}
+					if p.Current == "/sdcard/DCIM/z-match" {
 						d.mtime = 1234
 					}
 				}
@@ -178,7 +187,7 @@ func TestSafeDeleteRejectsChangedSourceAtBothChecks(t *testing.T) {
 	}
 }
 
-func TestSafeDeleteRehashesLocalBytesAfterSourceInspection(t *testing.T) {
+func TestSafeDeleteRehashesLocalBytesBeforeRemoval(t *testing.T) {
 	c := testConfig(t)
 	d := &deletingMemoryDevice{memoryDevice: testDevice()}
 	seedDeleteCopies(t, c, d.memoryDevice)
@@ -188,69 +197,17 @@ func TestSafeDeleteRehashesLocalBytesAfterSourceInspection(t *testing.T) {
 		t.Fatal(err)
 	}
 	corrupt := bytes.Repeat([]byte("x"), int(before.Size()))
-	d.beforeInspect = func(_ int, _ string) {
-		if err := os.WriteFile(target, corrupt, 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(target, before.ModTime(), before.ModTime()); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(target, corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
 	}
 	progress, report, err := runDeleteTest(t, context.Background(), c, d)
-	if err == nil || progress.Deleted != 0 || progress.Mismatched != 1 || len(d.attempts) != 0 || len(d.files) != 1 {
+	if err == nil || progress.Deleted != 0 || progress.Changed != 1 || len(d.attempts) != 1 || len(d.files) != 1 {
 		t.Fatalf("stale local content authorized deletion: error=%v; progress=%#v; attempts=%v\n%s", err, progress, d.attempts, report)
 	}
 	assertContent(t, target, corrupt)
-}
-
-func TestSafeDeleteRejectsDestinationReplacementDuringSourceInspection(t *testing.T) {
-	for _, replaceParent := range []bool{false, true} {
-		name := "file"
-		if replaceParent {
-			name = "parent"
-		}
-		t.Run(name, func(t *testing.T) {
-			c := testConfig(t)
-			d := &deletingMemoryDevice{memoryDevice: testDevice()}
-			d.files = map[string][]byte{"/sdcard/DCIM/album/photo": []byte("matching")}
-			seedDeleteCopies(t, c, d.memoryDevice)
-			target := savedPath(c, "/sdcard/DCIM/album/photo")
-			d.beforeInspect = func(_ int, _ string) {
-				if replaceParent {
-					parent := filepath.Dir(target)
-					if err := os.Rename(parent, parent+"-old"); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.Mkdir(parent, 0700); err != nil {
-						t.Fatal(err)
-					}
-					// Preserve the file identity; only the parent has changed.
-					if err := os.Link(filepath.Join(parent+"-old", "photo"), target); err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					info, err := os.Stat(target)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := os.Rename(target, target+"-old"); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.WriteFile(target, []byte("matching"), 0600); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.Chtimes(target, info.ModTime(), info.ModTime()); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			progress, report, err := runDeleteTest(t, context.Background(), c, d)
-			if err == nil || progress.Errors != 1 || progress.Deleted != 0 || len(d.attempts) != 0 || len(d.files) != 1 {
-				t.Fatalf("destination replacement authorized deletion: error=%v; progress=%#v\n%s", err, progress, report)
-			}
-			assertContent(t, target, []byte("matching"))
-		})
-	}
 }
 
 func TestSafeDeleteRejectsDestinationSymlinks(t *testing.T) {
@@ -284,27 +241,11 @@ func TestSafeDeleteRejectsDestinationSymlinks(t *testing.T) {
 	}
 }
 
-func TestSafeDeleteRefreshesExactNamesAfterSourceInspection(t *testing.T) {
-	c := testConfig(t)
-	d := &deletingMemoryDevice{memoryDevice: testDevice()}
-	seedDeleteCopies(t, c, d.memoryDevice)
-	target := savedPath(c, "/sdcard/DCIM/photo.jpg")
-	d.beforeInspect = func(_ int, _ string) {
-		if err := os.Rename(target, filepath.Join(c.dest, "PHOTO.JPG")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	progress, report, err := runDeleteTest(t, context.Background(), c, d)
-	if err == nil || progress.Errors != 1 || progress.Deleted != 0 || len(d.attempts) != 0 || len(d.files) != 1 {
-		t.Fatalf("stale exact-name cache authorized deletion: error=%v; progress=%#v\n%s", err, progress, report)
-	}
-}
-
 func TestSafeDeleteCancellationStopsBeforeRemoval(t *testing.T) {
-	for _, duringInspect := range []bool{false, true} {
+	for _, duringRemoval := range []bool{false, true} {
 		name := "between-files"
-		if duringInspect {
-			name = "source-inspection"
+		if duringRemoval {
+			name = "source-removal"
 		}
 		t.Run(name, func(t *testing.T) {
 			c := testConfig(t)
@@ -313,8 +254,8 @@ func TestSafeDeleteCancellationStopsBeforeRemoval(t *testing.T) {
 			seedDeleteCopies(t, c, d.memoryDevice)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if duringInspect {
-				d.beforeInspect = func(_ int, source string) {
+			if duringRemoval {
+				d.beforeRemove = func(source string) {
 					if source == "/sdcard/DCIM/b" {
 						cancel()
 					}
@@ -327,11 +268,11 @@ func TestSafeDeleteCancellationStopsBeforeRemoval(t *testing.T) {
 				}
 			}
 			progress, report, err := runDeleteTest(t, ctx, c, d)
-			checked, failures := 1, 0
-			if duringInspect {
-				checked, failures = 2, 1
+			checked, failures, attempts := 1, 0, 1
+			if duringRemoval {
+				checked, failures, attempts = 2, 1, 2
 			}
-			if !errors.Is(err, context.Canceled) || progress.Checked != checked || progress.Deleted != 1 || progress.Errors != failures || len(d.files) != 2 || len(d.attempts) != 1 || d.pulls != 0 {
+			if !errors.Is(err, context.Canceled) || progress.Checked != checked || progress.Deleted != 1 || progress.Errors != failures || len(d.files) != 2 || len(d.attempts) != attempts || d.pulls != 0 {
 				t.Fatalf("cancellation lost files or counts: error=%v; progress=%#v; files=%v\n%s", err, progress, d.files, report)
 			}
 			assertContent(t, savedPath(c, "/sdcard/DCIM/b"), []byte("second"))
@@ -351,7 +292,7 @@ func TestSafeDeleteCommandFailureStopsAndReportsUncertainty(t *testing.T) {
 			d.files = map[string][]byte{"/sdcard/DCIM/a": []byte("first"), "/sdcard/DCIM/b": []byte("second")}
 			seedDeleteCopies(t, c, d.memoryDevice)
 			progress, report, err := runDeleteTest(t, context.Background(), c, d)
-			if !errors.Is(err, d.removeErr) || progress.Checked != 1 || progress.Verified != 1 || progress.Deleted != 0 || progress.Errors != 1 || len(d.attempts) != 1 || d.pulls != 0 {
+			if !errors.Is(err, d.removeErr) || progress.Checked != 1 || progress.Verified != 0 || progress.Deleted != 0 || progress.Errors != 1 || len(d.attempts) != 1 || d.pulls != 0 {
 				t.Fatalf("command failure lost uncertainty: error=%v; progress=%#v\n%s", err, progress, report)
 			}
 			if _, exists := d.files["/sdcard/DCIM/b"]; !exists {
@@ -395,7 +336,7 @@ func TestSafeDeleteSourceInspectionFailureIsNotAMissingCopy(t *testing.T) {
 	seedDeleteCopies(t, c, d.memoryDevice)
 	d.inspectErr = os.ErrNotExist
 	progress, report, err := runDeleteTest(t, context.Background(), c, d)
-	if !errors.Is(err, os.ErrNotExist) || progress.Checked != 1 || progress.Missing != 0 || progress.Errors != 1 || progress.Deleted != 0 || len(d.attempts) != 0 || len(d.files) != 2 {
+	if !errors.Is(err, os.ErrNotExist) || progress.Checked != 1 || progress.Missing != 0 || progress.Errors != 1 || progress.Deleted != 0 || len(d.attempts) != 1 || len(d.files) != 2 {
 		t.Fatalf("source error was treated as a missing local copy or continued: error=%v; progress=%#v\n%s", err, progress, report)
 	}
 }
@@ -419,10 +360,12 @@ func TestSafeDeleteRejectsDisplacedDestinationRoot(t *testing.T) {
 	seedDeleteCopies(t, c, d.memoryDevice)
 	displaced := c.dest + "-displaced"
 	t.Cleanup(func() { os.RemoveAll(displaced) })
-	d.beforeInspect = func(call int, _ string) {
-		if call != 1 {
+	moved := false
+	c.onProgress = func(p transferProgress) {
+		if moved || p.Phase != "deleting" || p.Current != "/sdcard/DCIM/photo.jpg" {
 			return
 		}
+		moved = true
 		if err := os.Rename(c.dest, displaced); err != nil {
 			t.Fatal(err)
 		}

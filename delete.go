@@ -48,7 +48,7 @@ func deleteFiles(ctx context.Context, c config, out io.Writer, dev device, dest 
 		}
 		progress.Current = file.Path
 		c.report(*progress)
-		verified, deleted, err := deleteFile(ctx, c, dev, deleter, dest, file)
+		verified, deleted, err := deleteFile(ctx, c, deleter, dest, file)
 		progress.Checked++
 		if verified {
 			progress.Verified++
@@ -174,7 +174,7 @@ func recheckDeletePath(dest *destination, parts []deletePathPart) error {
 	return nil
 }
 
-func deleteFile(ctx context.Context, c config, dev device, deleter sourceDeleter, dest *destination, file entry) (verified, deleted bool, result error) {
+func deleteFile(ctx context.Context, c config, deleter sourceDeleter, dest *destination, file entry) (verified, deleted bool, result error) {
 	rel, err := localPath(file.Path, c.sources)
 	if err != nil {
 		return false, false, err
@@ -199,18 +199,6 @@ func deleteFile(ctx context.Context, c config, dev device, deleter sourceDeleter
 	if !unchangedDeleteCopy(before, opened) {
 		return false, false, fmt.Errorf("destination changed while opening: %q", rel)
 	}
-	source, err := dev.Inspect(ctx, file.Path)
-	if err != nil {
-		return false, false, err
-	}
-	if err := ctx.Err(); err != nil {
-		return false, false, err
-	}
-	if source.Size != file.Size || source.ModTime != file.ModTime {
-		return false, false, errSourceChanged
-	}
-	// Hash the held local descriptor AFTER the slow source inspection. Comparing
-	// only local metadata here would miss same-size writes with restored mtimes.
 	if err := recheckDeletePath(dest, parts); err != nil {
 		return false, false, err
 	}
@@ -239,18 +227,19 @@ func deleteFile(ctx context.Context, c config, dev device, deleter sourceDeleter
 	if err != nil {
 		return false, false, err
 	}
-	if n != before.Size() || !unchangedDeleteCopy(before, after) {
-		return false, false, fmt.Errorf("destination changed while hashing: %q", rel)
+	if n != before.Size() || n != file.Size || !unchangedDeleteCopy(before, after) {
+		return false, false, errContentMismatch
 	}
 	if err := recheckDeletePath(dest, parts); err != nil {
 		return false, false, err
 	}
-	if n != source.Size || hex.EncodeToString(h.Sum(nil)) != source.SHA256 {
-		return false, false, errContentMismatch
-	}
 	if err := ctx.Err(); err != nil {
 		return false, false, err
 	}
+	// RemoveVerified performs the single final device-side stat, hash, and
+	// conditional removal. The local hash supplies the expected source bytes,
+	// so a separate pre-removal Inspect would only duplicate that work.
+	source := fingerprint{Size: file.Size, ModTime: file.ModTime, SHA256: hex.EncodeToString(h.Sum(nil))}
 	// The descriptor stays open through removal. This is not a filesystem lock:
 	// noncooperating writers must remain idle on both sides. RemoveVerified does
 	// a final fresh source check, but pathname races cannot be eliminated by ADB.
@@ -258,7 +247,7 @@ func deleteFile(ctx context.Context, c config, dev device, deleter sourceDeleter
 		if !errors.Is(err, errSourceChanged) {
 			err = errors.Join(errDeletionUnconfirmed, err)
 		}
-		return true, false, err
+		return false, false, err
 	}
 	return true, true, nil
 }
