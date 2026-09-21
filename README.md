@@ -1,81 +1,64 @@
 # Android Transfer SLOP
 
-Copy files from an Android phone to your computer over ADB, with SHA-256 verification and resumable runs. A local browser interface handles folder selection, progress, verification reports, and optional **Safe Source Delete** or explicitly weaker **Quick Source Delete**.
+## Back up Android files without giving up control
 
-**Transfer and Verify only never change phone originals. Source deletion is always a separate, explicitly confirmed action.** The phone is authoritative: matching destination files are skipped; mismatches are replaced only after a fresh copy is verified.
+Copy photos, videos, documents, and sidecar files from an Android phone to local storage over ADB—without cloud sync or MTP.
 
-## Install the latest release
+- Resumable transfers with SHA-256 verification.
+- A local browser UI with clear progress and downloadable reports.
+- Safe Source Delete for byte-for-byte verified copies.
+- Quick Source Delete when you deliberately accept metadata-only checks.
+- Built for large folders, with batched, resumable runs designed for tens of thousands of files and hundreds of gigabytes in one folder.
+- Transfer and Verify-only modes never change phone originals.
 
-Run this once; it installs the latest release into a writable directory already on your `PATH`:
+The phone stays authoritative. Matching copies are skipped, mismatches are repaired only after verification, and source deletion is always a separate confirmed action.
+
+## Install
+
+### 1. Install ADB
+
+ADB is included in Android SDK Platform-Tools. Android Studio is not required.
+
+macOS with [Homebrew](https://brew.sh/):
+
+```sh
+brew install --cask android-platform-tools
+```
+
+Debian or Ubuntu:
+
+```sh
+sudo apt install adb
+```
+
+Other systems: install [Android SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools), then put `adb` on your `PATH`.
+
+Confirm ADB is available:
+
+```sh
+adb version
+```
+
+### 2. Install Android Transfer SLOP
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/chuntley/android-transfer-slop/main/install.sh | sh
 ```
 
-The installer detects macOS or Linux on Intel or ARM, downloads the matching latest release, verifies its SHA-256 checksum, and installs `android-transfer-slop` where your shell can find it. If every existing `PATH` directory is protected, it uses `/usr/local/bin` and asks for `sudo`. It does not install `adb`; install Android SDK Platform-Tools separately.
+The installer detects macOS or Linux on Intel or ARM, verifies the release checksum, and installs `android-transfer-slop` into a writable directory on your `PATH`.
 
-Start the app from any directory:
+### 3. Connect and launch
 
-```sh
-android-transfer-slop -gui
-```
-
-## Requirements
-
-- **Go 1.25+** and **Android SDK Platform-Tools** (`adb`). No Android Studio or root access required.
-- An Android phone with USB debugging enabled, an authorized computer, and a data-capable USB cable.
-- macOS or Linux, with destination storage that supports advisory locking and durable file operations. APFS is recommended; filesystems without hard links use a slower exclusive-copy fallback for new files.
-- Enough free space for the files and one full temporary copy when replacing a mismatch.
-
-The native destination picker is macOS-only. On Linux, enter an absolute destination path. Files are processed sequentially, not concurrently.
-
-Source modification timestamps and file modes are preserved when the destination filesystem supports them. Filesystem creation/birth time is local to the destination and therefore reflects when the copy was created.
-
-## Quick start
-
-### 1. Install the tools
-
-On macOS with [Homebrew](https://brew.sh/):
-
-```sh
-brew install go
-brew install --cask android-platform-tools
-```
-
-Otherwise, install [Go](https://go.dev/dl/) and [Android Platform-Tools](https://developer.android.com/tools/releases/platform-tools), and put their executables on your `PATH`.
-
-### 2. Connect your phone
-
-Enable **Developer options → USB debugging**, connect the phone, unlock it, and approve this computer’s debugging request. On Samsung phones, enable Developer options by tapping **Settings → About phone → Software information → Build number** seven times.
+Enable **Developer options → USB debugging**, connect the phone with a data-capable cable, unlock it, and approve the computer’s debugging request.
 
 ```sh
 adb devices -l
+android-transfer-slop -gui
 ```
 
-Your phone should show `device`, not `unauthorized` or `offline`. Close other phone-transfer apps before starting.
+The phone should show `device`, not `unauthorized` or `offline`. The app opens a local `127.0.0.1` page; keep the terminal running.
 
-### 3. Launch the app
-
-```sh
-git clone https://github.com/chuntley/android-transfer-slop.git
-cd android-transfer-slop
-go run . -gui
-```
-
-The browser opens a local `127.0.0.1` address. Keep the terminal running. The interface uses no cloud service or telemetry.
-
-If the browser does not open:
-
-```sh
-go run . -gui -no-open
-```
-
-Open the URL printed in the terminal. To build a standalone executable instead:
-
-```sh
-go build -o android-transfer-slop .
-./android-transfer-slop -gui
-```
+For a source-only checkout, use `go run . -gui` instead. The native destination picker is macOS-only; Linux users can enter an absolute destination path.
 
 ## Transfer your files
 
@@ -176,37 +159,22 @@ Same-size content rewrites, copied-back files with restored timestamps, and writ
 - Hidden `.android-transfer-part-*` files may remain after a forced quit. They are never accepted as completed copies. `.android-transfer.lock` is normal; its advisory lock releases when the process exits.
 - Turn off USB debugging afterward if you no longer need it.
 
-## Command-line use
+## Command line
 
 ```sh
-# Copy DCIM; rerun to resume
 go run . -dest "$HOME/Pictures/PhoneBackup"
-
-# Verify without copying or replacing anything
 go run . -dest "$HOME/Pictures/PhoneBackup" -verify
-
-# Select another source and an explicit phone
 go run . -dest /Volumes/Backup/Phone -source /sdcard/Pictures -serial SERIAL
-
-# See every option
-go run . -help
 ```
 
-Repeat `-source` for multiple roots. Each root’s contents share the destination; overlapping roots use the most specific root. Distinct source files mapping to one destination path stop the run before copying. Use separate destinations for separate phones.
-
-Command-line verification returns a nonzero exit status when problems are found. **Source deletion is GUI-only.** With `-gui`, choose transfer settings in the interface; only `-adb`, `-timeout`, and `-no-open` configure its launch.
+Repeat `-source` for multiple roots. Source deletion is GUI-only. Use `go run . -help` for all options.
 
 ## Development
 
-The app uses Go’s standard library and embedded HTML, CSS, and vanilla JavaScript. No frontend build step or external Go dependencies are required.
+The project uses Go’s standard library and embedded HTML, CSS, and JavaScript. No frontend build step is required.
 
 ```sh
-go test -race -cover ./...
+go test ./...
 go vet ./...
 go build -o android-transfer-slop .
-
-# Optional large-library benchmarks; not a USB throughput measurement
-go test -run '^$' -bench . -benchmem
 ```
-
-Regression tests exercise real local files, in-memory devices, and fake-ADB processes that execute actual shell commands. They cover transfer recovery, fresh verification, deletion eligibility, path changes, symlinks, cancellation, malformed device output, and uncertain deletion outcomes. Browser smoke checks use simulated devices. These checks do not certify compatibility or performance on your physical phone; begin with a small transfer and keep another backup.
