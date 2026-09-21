@@ -29,6 +29,8 @@ android-transfer-slop -gui
 
 The native destination picker is macOS-only. On Linux, enter an absolute destination path. Files are processed sequentially, not concurrently.
 
+Source modification timestamps and file modes are preserved when the destination filesystem supports them. Filesystem creation/birth time is local to the destination and therefore reflects when the copy was created.
+
 ## Quick start
 
 ### 1. Install the tools

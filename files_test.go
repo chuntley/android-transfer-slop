@@ -184,8 +184,16 @@ func TestExclusivePublicationCopiesWithoutOverwrite(t *testing.T) {
 	if err := d.root.WriteFile("temp", []byte("new"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	stamp := time.Unix(123456, 0)
+	if err := os.Chtimes(filepath.Join(d.root.Name(), "temp"), stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.publishExclusiveCopy("temp", "published"); err != nil {
 		t.Fatal(err)
+	}
+	published, err := os.Stat(filepath.Join(d.root.Name(), "published"))
+	if err != nil || !published.ModTime().Equal(stamp) {
+		t.Fatalf("published metadata = %v, want mtime %v", err, stamp)
 	}
 	assertContent(t, filepath.Join(d.root.Name(), "published"), []byte("new"))
 	if err := d.root.WriteFile("temp-2", []byte("newer"), 0600); err != nil {

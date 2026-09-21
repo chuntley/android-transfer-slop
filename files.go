@@ -277,15 +277,27 @@ func (d *destination) publishExclusiveCopy(temp, rel string) error {
 	if err != nil {
 		return err
 	}
-	target, err := d.root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	sourceInfo, err := source.Stat()
+	if err != nil {
+		source.Close()
+		return err
+	}
+	target, err := d.root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, sourceInfo.Mode().Perm())
 	if err != nil {
 		source.Close()
 		return fmt.Errorf("publishing without overwrite: %w", err)
 	}
 	_, copyErr := io.Copy(target, source)
+	metadataErr := target.Chmod(sourceInfo.Mode().Perm())
+	if metadataErr == nil {
+		metadataErr = syscall.Futimes(int(target.Fd()), []syscall.Timeval{
+			syscall.NsecToTimeval(sourceInfo.ModTime().UnixNano()),
+			syscall.NsecToTimeval(sourceInfo.ModTime().UnixNano()),
+		})
+	}
 	syncErr := target.Sync()
 	closeErr := errors.Join(target.Close(), source.Close())
-	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+	if err := errors.Join(copyErr, metadataErr, syncErr, closeErr); err != nil {
 		return fmt.Errorf("publishing without overwrite: %w", err)
 	}
 	if err := d.syncDir(filepath.Dir(rel)); err != nil {
